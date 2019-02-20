@@ -1,3 +1,4 @@
+from __future__ import print_function
 import sys
 import cv2
 import time
@@ -6,6 +7,12 @@ from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import QApplication, QDialog
 from PyQt5.uic import loadUi
 from datetime import datetime
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+from Pack1 import Auth
+
+# If modifying these scopes, delete the file token.pickle.
+SCOPES = ['https://www.googleapis.com/auth/drive']
 
 
 class WebCam(QDialog):
@@ -16,6 +23,9 @@ class WebCam(QDialog):
         self.count = 0
         self.sec_count = 2
         self.name_count = 0
+        authInst = Auth.Auth(SCOPES)
+        self.credentials = authInst.getCredentials()
+        self.drive_service = build('drive', 'v3', credentials=self.credentials)
         self.startButton.clicked.connect(self.start_webcam)
         self.stopButton.clicked.connect(self.stop_webcam)
 
@@ -29,12 +39,10 @@ class WebCam(QDialog):
         current_date = datetime.utcnow().strftime("%Y%m%d")
         self.count += 1
         self.fileName = "Video" + current_date + "_" + str(self.count)
-        self.fName = self.fileName + "WithMotionDetection.avi"
         self.fileName += ".avi"
         self.imgSize = (640, 480)
         self.fps = 2.0
-        self.writer = cv2.VideoWriter(self.fileName, cv2.VideoWriter_fourcc(*"MJPG"), self.fps, self.imgSize)
-        self.writer_motion = cv2.VideoWriter(self.fName, cv2.VideoWriter_fourcc(*"MJPG"), self.fps, self.imgSize)
+        self.writer_motion = cv2.VideoWriter(self.fileName, cv2.VideoWriter_fourcc(*"MJPG"), self.fps, self.imgSize)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
         self.timer.timeout.connect(self.motion_detect)
@@ -43,7 +51,6 @@ class WebCam(QDialog):
     def update_frame(self):
         ret, self.image = self.capture.read()
         self.image = cv2.flip(self.image, 1)
-        self.saveImage(self.image, self.writer, ret)
         self.displayImage(self.image, 1)
 
     def motion_detect(self):
@@ -70,11 +77,15 @@ class WebCam(QDialog):
                 iname="SS"+str(current_time)+".jpeg"
                 self.sec_image = cv2.flip(self.sec_image,1)
                 cv2.imwrite(iname,self.sec_image)
+                self.uploadMedia(fname=iname, mimetype='image/jpeg')
                 self.sec_count = 10
             self.saveImage(self.frame1, self.writer_motion, 1)
 
     def stop_webcam(self):
         self.timer.stop()
+        mtype='video/x-msvideo'
+        fname=str(self.fileName)
+        self.uploadMedia(fname=fname, mimetype=mtype)
 
     def saveImage(self, img, writer, ret):
         if ret == True:
@@ -95,6 +106,12 @@ class WebCam(QDialog):
         if win == 1:
             self.videoLabel.setPixmap(QPixmap.fromImage(outimage))
             self.videoLabel.setScaledContents(True)
+
+    def uploadMedia(self, fname, mimetype):
+        file_metadata = {'name': fname}
+        media = MediaFileUpload(fname, mimetype=mimetype)
+        file = self.drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        print(fname+" Upload Successful")
 
 
 app = QApplication(sys.argv)
