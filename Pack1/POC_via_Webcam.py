@@ -14,6 +14,8 @@ class WebCam(QDialog):
         loadUi('MyUi.ui', self)
         self.image = None
         self.count = 0
+        self.sec_count = 2
+        self.name_count = 0
         self.startButton.clicked.connect(self.start_webcam)
         self.stopButton.clicked.connect(self.stop_webcam)
 
@@ -21,6 +23,9 @@ class WebCam(QDialog):
         self.capture = cv2.VideoCapture(0)
         self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        self.capture_secondary = cv2.VideoCapture(1)
+        self.capture_secondary.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        self.capture_secondary.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         current_date = datetime.utcnow().strftime("%Y%m%d")
         self.count += 1
         self.fileName = "Video" + current_date + "_" + str(self.count)
@@ -58,6 +63,14 @@ class WebCam(QDialog):
                 save = True
                 break;
         if save:
+            self.sec_count-=1
+            if (self.sec_count==0):
+                current_time = time.time()
+                _, self.sec_image = self.capture_secondary.read()
+                iname="SS"+str(current_time)+".jpeg"
+                self.sec_image = cv2.flip(self.sec_image,1)
+                cv2.imwrite(iname,self.sec_image)
+                self.sec_count = 10
             self.saveImage(self.frame1, self.writer_motion, 1)
 
     def stop_webcam(self):
