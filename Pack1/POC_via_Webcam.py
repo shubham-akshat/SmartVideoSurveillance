@@ -2,6 +2,7 @@ from __future__ import print_function
 import sys
 import cv2
 import time
+import os
 from PyQt5.QtCore import QTimer
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import QApplication, QDialog
@@ -9,7 +10,7 @@ from PyQt5.uic import loadUi
 from datetime import datetime
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from Pack1 import Auth
+from P2.Auth import Auth
 
 # If modifying these scopes, delete the file token.pickle.
 SCOPES = ['https://www.googleapis.com/auth/drive']
@@ -20,14 +21,13 @@ class WebCam(QDialog):
         super(WebCam, self).__init__()
         loadUi('MyUi.ui', self)
         self.image = None
-        self.count = 0
+        self.frame_count = 0
         self.sec_count = 2
-        self.name_count = 0
-        authInst = Auth.Auth(SCOPES)
+        self.VideoSizeInFrames = 20
+        authInst = Auth(SCOPES)
         self.credentials = authInst.getCredentials()
         self.drive_service = build('drive', 'v3', credentials=self.credentials)
-        self.startButton.clicked.connect(self.start_webcam)
-        self.stopButton.clicked.connect(self.stop_webcam)
+        self.start_webcam()
 
     def start_webcam(self):
         self.capture = cv2.VideoCapture(0)
@@ -36,17 +36,26 @@ class WebCam(QDialog):
         self.capture_secondary = cv2.VideoCapture(1)
         self.capture_secondary.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         self.capture_secondary.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-        current_date = datetime.utcnow().strftime("%Y%m%d")
-        self.count += 1
-        self.fileName = "Video" + current_date + "_" + str(self.count)
-        self.fileName += ".avi"
         self.imgSize = (640, 480)
         self.fps = 2.0
-        self.writer_motion = cv2.VideoWriter(self.fileName, cv2.VideoWriter_fourcc(*"MJPG"), self.fps, self.imgSize)
+        self.createVW()
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_frame)
+        self.t2 = QTimer(self)
+        self.t2.timeout.connect(self.update_frame)
         self.timer.timeout.connect(self.motion_detect)
         self.timer.start(1)
+        self.t2.start(1)
+
+
+    def createVW(self):
+        current_time = datetime.utcnow().strftime("_%M_%S")
+        self.path="D:\Softwares\Eclipse\PythonIntro\Pack1\Media"+datetime.utcnow().strftime("\%Y\%m\%d\%H")
+        if not os.path.exists(self.path):
+            os.makedirs(self.path)
+        self.fileName = "Video" + current_time
+        self.fileName += ".avi"
+        self.VideoPath = os.path.join(self.path, self.fileName)
+        self.writer_motion = cv2.VideoWriter(self.VideoPath, cv2.VideoWriter_fourcc(*"MJPG"), self.fps, self.imgSize)
 
     def update_frame(self):
         ret, self.image = self.capture.read()
@@ -54,9 +63,13 @@ class WebCam(QDialog):
         self.displayImage(self.image, 1)
 
     def motion_detect(self):
+        if self.frame_count == self.VideoSizeInFrames:
+            self.save_clip()
+            self.createVW()
+            self.frame_count = 0
         ret, self.frame1 = self.capture.read()
         self.frame1 = cv2.flip(self.frame1, 1)
-        time.sleep(0.25)
+        time.sleep(0.1)
         ret, self.frame2 = self.capture.read()
         self.frame2 = cv2.flip(self.frame2, 1)
         img1 = cv2.absdiff(self.frame1, self.frame2)
@@ -70,22 +83,23 @@ class WebCam(QDialog):
                 save = True
                 break;
         if save:
-            self.sec_count-=1
-            if (self.sec_count==0):
-                current_time = time.time()
+            self.frame_count += 1
+            self.sec_count -= 1
+            if self.sec_count == 0:
+                current_time = datetime.utcnow().strftime("_%M_%S")
                 _, self.sec_image = self.capture_secondary.read()
-                iname="SS"+str(current_time)+".jpeg"
+                iname = "SS"+current_time+".jpeg"
+                self.imgPath = os.path.join(self.path, iname)
                 self.sec_image = cv2.flip(self.sec_image,1)
-                cv2.imwrite(iname,self.sec_image)
-                self.uploadMedia(fname=iname, mimetype='image/jpeg')
+                cv2.imwrite(self.imgPath, self.sec_image)
+                self.uploadMedia(name=iname, path=self.imgPath, mimetype='image/jpeg')
                 self.sec_count = 10
             self.saveImage(self.frame1, self.writer_motion, 1)
 
-    def stop_webcam(self):
-        self.timer.stop()
+    def save_clip(self):
+        self.writer_motion.release()
         mtype='video/x-msvideo'
-        fname=str(self.fileName)
-        self.uploadMedia(fname=fname, mimetype=mtype)
+        self.uploadMedia(name=self.fileName, path=self.VideoPath, mimetype=mtype)
 
     def saveImage(self, img, writer, ret):
         if ret == True:
@@ -107,11 +121,17 @@ class WebCam(QDialog):
             self.videoLabel.setPixmap(QPixmap.fromImage(outimage))
             self.videoLabel.setScaledContents(True)
 
-    def uploadMedia(self, fname, mimetype):
-        file_metadata = {'name': fname}
-        media = MediaFileUpload(fname, mimetype=mimetype)
+    def uploadMedia(self, name, path, mimetype):
+        file_metadata = {'name': name}
+        media = MediaFileUpload(str(path), mimetype=mimetype)
         file = self.drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-        print(fname+" Upload Successful")
+        print(name + " Upload Successful")
+
+    def closeEvent(self, event):
+        self.save_clip()
+        self.capture_secondary.release()
+        self.capture.release()
+        super(WebCam, self).closeEvent(event)
 
 
 app = QApplication(sys.argv)
